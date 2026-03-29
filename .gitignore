@@ -1,0 +1,10 @@
+# Ignore VS Code configuration folder
+.vscode/
+
+# Ignore build output folders
+bin/
+obj/
+
+# Optional: Ignore specific user-specific VS Code files if you want to keep extensions/tasks
+# .vscode/settings.json
+# .vscode/tasks.json
