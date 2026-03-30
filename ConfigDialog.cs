@@ -25,7 +25,7 @@ namespace ClaudeUsageBar
             // ── Form setup ───────────────────────────────────────────────
             this.FormBorderStyle = FormBorderStyle.None;
             this.BackColor       = Color.FromArgb(24, 24, 24);
-            this.Size            = new Size(500, 95);
+            this.Size            = new Size(500, 115);
             this.TopMost         = true;
             this.StartPosition   = FormStartPosition.Manual;
             this.Location = new Point(owner.Left, owner.Bottom + 4);
@@ -59,9 +59,9 @@ namespace ClaudeUsageBar
             {
                 Location    = new Point(260, y2),
                 Size        = new Size(60, 24),
-                Minimum     = 1,
+                Minimum     = 5,
                 Maximum     = 60,
-                Value       = Math.Max(1, Settings.LoadRefreshIntervalMs() / 60_000),
+                Value       = Math.Max(5, Settings.LoadRefreshIntervalMs() / 60_000),
                 BackColor   = Color.FromArgb(40, 40, 40),
                 ForeColor   = Color.White,
                 BorderStyle = BorderStyle.FixedSingle,
@@ -80,12 +80,13 @@ namespace ClaudeUsageBar
                 BackColor = Color.Transparent
             });
 
-            // ── Buttons ──────────────────────────────────────────────────
-            var btnSave = MakeButton("SAVE", 370, y2 - 2);
+            // ── Buttons (row below inputs) ────────────────────────────────
+            int y3 = y2 + 30;
+            var btnSave = MakeButton("SAVE", 370, y3);
             btnSave.Click += BtnSave_Click;
             panel.Controls.Add(btnSave);
 
-            var btnClose = MakeButton("✖", 464, y2 - 2);
+            var btnClose = MakeButton("✖", 464, y3);
             btnClose.Click += (s, e) => { this.DialogResult = DialogResult.Cancel; this.Close(); };
             btnClose.Size = new Size(28, 28);
             panel.Controls.Add(btnClose);
@@ -96,8 +97,8 @@ namespace ClaudeUsageBar
                 Text      = credFound
                     ? $"Using: {credPath ?? "~/.claude/.credentials.json"}"
                     : "Run 'claude' CLI and log in to generate credentials",
-                Location  = new Point(10, y2 + 30),
-                Size      = new Size(480, 18),
+                Location  = new Point(10, y3 + 4),
+                Size      = new Size(350, 18),
                 ForeColor = Color.FromArgb(120, 120, 120),
                 Font      = new Font("Segoe UI", 7.5f),
                 BackColor = Color.Transparent

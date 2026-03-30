@@ -43,6 +43,10 @@ namespace ClaudeUsageBar
 
         private Button btnConfig;
 
+        private bool _isUpdating = false;
+        private NotifyIcon trayIcon;
+        private bool _forceClose = false;
+
         // Burn-rate tracking
         private float _prevTokensUsed = float.NaN;
         private float _prevCostUsed = float.NaN;
@@ -56,10 +60,26 @@ namespace ClaudeUsageBar
             this.Text = "Claude Usage Bar";
             this.FormBorderStyle = FormBorderStyle.None;
             this.TopMost = true;
+            this.ShowInTaskbar = false;
             this.BackColor = Color.FromArgb(24, 24, 24);
             this.Size = Settings.LoadWindowSize();
             this.StartPosition = FormStartPosition.Manual;
             this.Location = Settings.LoadWindowLocation();
+
+            // ── System tray icon ─────────────────────────────────────────
+            var trayMenu = new ContextMenuStrip();
+            trayMenu.Items.Add("Options", null, (s, e) => BtnConfig_Click(s, e));
+            trayMenu.Items.Add(new ToolStripSeparator());
+            trayMenu.Items.Add("Exit", null, (s, e) => { _forceClose = true; this.Close(); });
+
+            trayIcon = new NotifyIcon
+            {
+                Icon    = CreateRobotIcon(),
+                Text    = "Claude Usage",
+                Visible = true,
+                ContextMenuStrip = trayMenu
+            };
+            trayIcon.DoubleClick += (s, e) => { this.Show(); this.Activate(); };
 
             infoBar = new Panel { Dock = DockStyle.Fill, BackColor = Color.FromArgb(24, 24, 24) };
             this.Controls.Add(infoBar);
@@ -191,7 +211,7 @@ namespace ClaudeUsageBar
                 Anchor = AnchorStyles.Top | AnchorStyles.Right
             };
             btnExit.FlatAppearance.BorderSize = 0;
-            btnExit.Click += (s, e) => this.Close();
+            btnExit.Click += (s, e) => this.Hide();
             btnExit.Location = new Point(this.Width - 40, barTop);
             infoBar.Controls.Add(btnExit);
 
@@ -283,8 +303,8 @@ namespace ClaudeUsageBar
             // ── Thin refresh-progress bar at bottom edge ─────────────────
             refreshProgressPanel = new Panel
             {
-                Location = new Point(0, 109),
-                Size = new Size(1200, 6),
+                Location = new Point(0, 112),
+                Size = new Size(1200, 3),
                 BackColor = Color.FromArgb(40, 40, 40)
             };
             refreshProgressPanel.Paint += RefreshProgressPanel_Paint;
@@ -311,7 +331,13 @@ namespace ClaudeUsageBar
             countdownTimer.Start();
 
             updateTimer = new System.Windows.Forms.Timer { Interval = refreshIntervalMs };
-            updateTimer.Tick += async (s, e) => await UpdateUsageAsync();
+            updateTimer.Tick += async (s, e) =>
+            {
+                if (_isUpdating) return;
+                _isUpdating = true;
+                try { await UpdateUsageAsync(); }
+                finally { _isUpdating = false; }
+            };
             updateTimer.Start();
 
             nextRefreshTime = DateTime.Now.AddMilliseconds(refreshIntervalMs);
@@ -319,6 +345,57 @@ namespace ClaudeUsageBar
             // SynchronizationContext — otherwise the await continuation runs on a
             // thread-pool thread and cross-thread UI updates are silently swallowed.
             this.Shown += async (s, e) => await UpdateUsageAsync();
+        }
+
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            if (!_forceClose)
+            {
+                e.Cancel = true;
+                this.Hide();
+                return;
+            }
+            trayIcon.Visible = false;
+            trayIcon.Dispose();
+            base.OnFormClosing(e);
+        }
+
+        private static Icon CreateRobotIcon()
+        {
+            var bmp = new Bitmap(32, 32);
+            using (var g = Graphics.FromImage(bmp))
+            {
+                g.Clear(Color.Transparent);
+                g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+
+                // Antenna ball
+                using var antBrush = new SolidBrush(Color.Gold);
+                g.FillEllipse(antBrush, 13, 0, 6, 6);
+
+                // Antenna stem
+                using var antPen = new Pen(Color.FromArgb(160, 200, 255), 2);
+                g.DrawLine(antPen, 16, 5, 16, 8);
+
+                // Head
+                using var headBrush = new SolidBrush(Color.FromArgb(70, 140, 220));
+                g.FillRectangle(headBrush, 5, 8, 22, 18);
+
+                // Head border
+                using var borderPen = new Pen(Color.FromArgb(120, 180, 255), 1.5f);
+                g.DrawRectangle(borderPen, 5, 8, 22, 18);
+
+                // Left eye
+                using var eyeBrush = new SolidBrush(Color.Gold);
+                g.FillEllipse(eyeBrush, 9, 12, 5, 5);
+
+                // Right eye
+                g.FillEllipse(eyeBrush, 18, 12, 5, 5);
+
+                // Mouth (horizontal bar)
+                using var mouthBrush = new SolidBrush(Color.FromArgb(200, 240, 255));
+                g.FillRectangle(mouthBrush, 10, 21, 12, 3);
+            }
+            return Icon.FromHandle(bmp.GetHicon());
         }
 
         private void AttachDragHandler(Control parent)

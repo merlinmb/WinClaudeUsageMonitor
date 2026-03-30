@@ -151,7 +151,7 @@ public class CredentialService
                 { "refresh_token", refreshToken }
             });
 
-            var response = await _httpClient.SendAsync(request);
+            using var response = await _httpClient.SendAsync(request);
             if (!response.IsSuccessStatusCode)
             {
                 var error = await response.Content.ReadAsStringAsync();

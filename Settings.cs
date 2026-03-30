@@ -52,7 +52,7 @@ namespace ClaudeUsageBar
         // ── Typed helpers ─────────────────────────────────────────────────
 
         public static int LoadRefreshIntervalMs() =>
-            int.TryParse(Get("refreshIntervalMs"), out int v) ? Math.Max(30_000, v) : 120_000;
+            int.TryParse(Get("refreshIntervalMs"), out int v) ? Math.Max(300_000, v) : 300_000;
         public static void SaveRefreshIntervalMs(int ms) { Set("refreshIntervalMs", ms.ToString()); SaveAll(); }
 
         public static Point LoadWindowLocation()
