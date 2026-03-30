@@ -1,27 +1,75 @@
 # Claude Usage Bar
 
-A Windows desktop application that displays an information bar with Anthropic Claude API usage stats, inspired by the attached image. Features:
-- Runs as a standalone .exe
-- Always-on-top info bar
-- Configurable with your Anthropic API key
-- Updates every 2 minutes
-- Dark theme UI with usage bars and time to reset
+A Windows desktop application that displays an always-on-top info bar with Claude API usage stats.
+
+Features:
+- Always-on-top borderless info bar
+- 5-hour session usage, 7-day usage, cost/extra usage, model distribution
+- Burn rate and session-out time predictions
+- Peak vs standard rate indicator (US Eastern business hours)
+- Auto-refreshes on a configurable interval (default 2 minutes)
+- Dark theme UI
+
+## Requirements
+
+- .NET 8.0 Windows runtime
+- **Claude Code CLI** installed and authenticated (provides OAuth credentials)
+
+## Authentication
+
+This app does **not** use an Anthropic API key or a session cookie. It authenticates using the same OAuth credentials that the Claude Code CLI stores locally after you log in.
+
+### How to authenticate
+
+1. Install the Claude Code CLI:
+   ```
+   npm install -g @anthropic-ai/claude-code
+   ```
+2. Log in:
+   ```
+   claude
+   ```
+   Follow the browser-based OAuth flow. Once complete, credentials are saved automatically.
+
+3. Launch Claude Usage Bar — it will find and use the credentials with no further setup.
+
+### Where credentials are stored
+
+The CLI saves OAuth credentials to:
+
+| Environment | Path |
+|-------------|------|
+| Windows (native) | `%USERPROFILE%\.claude\.credentials.json` |
+| WSL (Debian/Ubuntu) | `\\wsl.localhost\<distro>\home\<user>\.claude\.credentials.json` |
+
+The app searches Windows native first, then common WSL distros. If multiple credential files exist, it picks the most recently modified one.
+
+The credentials file contains an access token and a refresh token. The app **automatically refreshes the access token** when it is within 5 minutes of expiry, writing the new token back to the same file.
 
 ## Setup
-- Requires .NET 6.0 or later (for Windows Forms)
-- Build with Visual Studio or `dotnet build`
+
+```
+dotnet build
+dotnet run
+```
+
+Or open `ClaudeUsageBar.sln` in Visual Studio and press F5.
 
 ## Configuration
-- On first launch, enter your Anthropic API key
-- The app will fetch and display usage stats every 2 minutes
 
-## API Reference
-- See https://github.com/Maciek-roboblog/Claude-Code-Usage-Monitor for API usage examples
+Click the **⚙** button to open the settings panel where you can:
+- See whether OAuth credentials were detected and which file is being used
+- Adjust the refresh interval (1–60 minutes)
 
-## Status
-- [ ] Initial project scaffolding
-- [ ] API integration
-- [ ] UI implementation
-- [ ] Always-on-top support
-- [ ] Configuration dialog
-- [ ] Build and test
+## Metrics displayed
+
+| Metric | Source |
+|--------|--------|
+| Cost Usage | `extra_usage` — monthly add-on spend vs limit |
+| 5h Session | `five_hour.utilization` — rolling 5-hour token window |
+| 7-Day Usage | `seven_day.utilization` — rolling 7-day token window |
+| Time to Reset | `five_hour.resets_at` |
+| Model Distribution | `seven_day_sonnet` vs derived opus share |
+| Burn Rate | Delta between successive readings (% pts/min) |
+| Cost Rate | Delta in USD/min |
+| Session Out | Estimated time until 5h session exhausted at current burn rate |
