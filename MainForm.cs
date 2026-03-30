@@ -1,7 +1,7 @@
 using System;
 using System.Drawing;
 using System.Windows.Forms;
-using Newtonsoft.Json.Linq;
+using ClaudeUsageBar.Services;
 
 namespace ClaudeUsageBar
 {
@@ -14,11 +14,12 @@ namespace ClaudeUsageBar
 
         private const int WM_NCLBUTTONDOWN = 0xA1;
         private const int HTCAPTION = 0x2;
+        private const int WM_EXITSIZEMOVE = 0x0232;
 
         private System.Windows.Forms.Timer updateTimer;
         private System.Windows.Forms.Timer refreshBarTimer;
         private System.Windows.Forms.Timer countdownTimer;
-        private int refreshIntervalMs = 2 * 60 * 1000;
+        private int refreshIntervalMs = Settings.LoadRefreshIntervalMs();
         private DateTime nextRefreshTime;
 
         private Panel infoBar;
@@ -37,9 +38,10 @@ namespace ClaudeUsageBar
         private Label lblBurnRate;
         private Label lblCostRate;
         private Label lblPredictions;
+        private Label lblExtraUsage;
+        private Label lblExtraUsageTitle;
 
         private Button btnConfig;
-        private ClaudeApiClient? apiClient;
 
         // Burn-rate tracking
         private float _prevTokensUsed = float.NaN;
@@ -55,15 +57,15 @@ namespace ClaudeUsageBar
             this.FormBorderStyle = FormBorderStyle.None;
             this.TopMost = true;
             this.BackColor = Color.FromArgb(24, 24, 24);
-            this.Size = new Size(1200, 115);
+            this.Size = Settings.LoadWindowSize();
             this.StartPosition = FormStartPosition.Manual;
-            this.Location = new Point(100, 100);
+            this.Location = Settings.LoadWindowLocation();
 
             infoBar = new Panel { Dock = DockStyle.Fill, BackColor = Color.FromArgb(24, 24, 24) };
             this.Controls.Add(infoBar);
 
             // ── Layout constants ─────────────────────────────────────────
-            const int barTop = 5, barH = 55, barW = 165, gap = 15;
+            const int barTop = 5, barH = 58, barW = 165, gap = 15;
             const int row2Y = 67, row2TitleH = 13, row2ValY = 67 + row2TitleH;
             int x = 10;
 
@@ -82,7 +84,7 @@ namespace ClaudeUsageBar
 
             barToken = new UsageBar
             {
-                Label = "Token Usage",
+                Label = "5h Session",
                 ValueText = "-",
                 Percentage = 0f,
                 BarColor = Color.Gold,
@@ -94,7 +96,7 @@ namespace ClaudeUsageBar
 
             barMessage = new UsageBar
             {
-                Label = "Messages Usage",
+                Label = "7-Day Usage",
                 ValueText = "-",
                 Percentage = 0f,
                 BarColor = Color.Gold,
@@ -256,6 +258,28 @@ namespace ClaudeUsageBar
             };
             infoBar.Controls.Add(lblPredictions);
 
+            // ── Bottom row: extra usage ──────────────────────────────────
+            lblExtraUsageTitle = new Label
+            {
+                Text = "EXTRA USAGE",
+                Location = new Point(830, row2Y),
+                Size = new Size(300, row2TitleH),
+                ForeColor = Color.FromArgb(160, 160, 160),
+                Font = new Font("Segoe UI", 7f, FontStyle.Bold),
+                BackColor = Color.Transparent
+            };
+            infoBar.Controls.Add(lblExtraUsageTitle);
+            lblExtraUsage = new Label
+            {
+                Text = "--",
+                Location = new Point(830, row2ValY),
+                Size = new Size(300, 22),
+                ForeColor = Color.FromArgb(200, 160, 255),
+                Font = new Font("Segoe UI", 10, FontStyle.Bold),
+                BackColor = Color.Transparent
+            };
+            infoBar.Controls.Add(lblExtraUsage);
+
             // ── Thin refresh-progress bar at bottom edge ─────────────────
             refreshProgressPanel = new Panel
             {
@@ -291,7 +315,10 @@ namespace ClaudeUsageBar
             updateTimer.Start();
 
             nextRefreshTime = DateTime.Now.AddMilliseconds(refreshIntervalMs);
-            _ = UpdateUsageAsync();
+            // Delay first load until after Application.Run() installs the WinForms
+            // SynchronizationContext — otherwise the await continuation runs on a
+            // thread-pool thread and cross-thread UI updates are silently swallowed.
+            this.Shown += async (s, e) => await UpdateUsageAsync();
         }
 
         private void AttachDragHandler(Control parent)
@@ -313,9 +340,6 @@ namespace ClaudeUsageBar
 
         private void RefreshBarTimer_Tick(object? sender, EventArgs e)
         {
-            var now = DateTime.Now;
-            double msLeft = (nextRefreshTime - now).TotalMilliseconds;
-            if (msLeft < 0) msLeft = 0;
             refreshProgressPanel?.Invalidate();
         }
 
@@ -326,7 +350,10 @@ namespace ClaudeUsageBar
             double pct = 1.0 - (msLeft / refreshIntervalMs);
             int fillW = (int)(refreshProgressPanel.Width * pct);
             if (fillW > 0)
-                e.Graphics.FillRectangle(new SolidBrush(Color.Gold), 0, 0, fillW, refreshProgressPanel.Height);
+            {
+                using var brush = new SolidBrush(Color.Gold);
+                e.Graphics.FillRectangle(brush, 0, 0, fillW, refreshProgressPanel.Height);
+            }
         }
 
         private void UpdateCountdown()
@@ -356,13 +383,28 @@ namespace ClaudeUsageBar
             }
         }
 
+        protected override void WndProc(ref Message m)
+        {
+            base.WndProc(ref m);
+            if (m.Msg == WM_EXITSIZEMOVE)
+                Settings.SaveWindowBounds(this.Location, this.Size);
+        }
+
         private void BtnConfig_Click(object? sender, EventArgs e)
         {
-            using (var dlg = new ConfigDialog())
+            using (var dlg = new ConfigDialog(this))
             {
                 if (dlg.ShowDialog() == DialogResult.OK)
                 {
-                    Settings.SaveApiKey(dlg.ApiKey);
+                    int newInterval = dlg.RefreshIntervalMs;
+                    if (newInterval != refreshIntervalMs)
+                    {
+                        refreshIntervalMs = newInterval;
+                        Settings.SaveRefreshIntervalMs(refreshIntervalMs);
+                        updateTimer.Interval = refreshIntervalMs;
+                        nextRefreshTime = DateTime.Now.AddMilliseconds(refreshIntervalMs);
+                    }
+
                     _ = UpdateUsageAsync();
                 }
             }
@@ -370,130 +412,125 @@ namespace ClaudeUsageBar
 
         private async System.Threading.Tasks.Task UpdateUsageAsync()
         {
-            string apiKey = Settings.LoadApiKey();
-            if (string.IsNullOrWhiteSpace(apiKey))
+            if (!CredentialService.CredentialsExist())
             {
                 barCost.ValueText = barToken.ValueText = barMessage.ValueText = "-";
                 barCost.Percentage = barToken.Percentage = barMessage.Percentage = 0f;
-                lblTime.Text = "No Key";
+                lblTime.Text = "No Auth";
                 nextRefreshTime = DateTime.Now.AddMilliseconds(refreshIntervalMs);
+                Invalidate(true);
                 return;
             }
 
-            apiClient = new ClaudeApiClient(apiKey);
             try
             {
-                var usage = await apiClient.GetUsageAsync();
+                var usage = await UsageApiService.GetUsageAsync();
                 if (usage == null)
                 {
                     barCost.ValueText = barToken.ValueText = barMessage.ValueText = "ERR";
                     barCost.Percentage = barToken.Percentage = barMessage.Percentage = 0f;
                     lblTime.Text = "API Err";
                     nextRefreshTime = DateTime.Now.AddMilliseconds(refreshIntervalMs);
+                    Invalidate(true);
                     return;
                 }
 
-                float costUsedAbs = 0, costLimit = 0;
-                float tokenUsedAbs = 0, tokenLimit = 0;
-                float msgUsedAbs = 0, msgLimit = 0;
-
-                // ── Cost ────────────────────────────────────────────────
-                var costNode = usage["cost"];
-                if (costNode != null)
+                // ── Cost (extra_usage) ───────────────────────────────────
+                float costUsedAbs = 0, costPct = 0;
+                if (usage.ExtraUsage != null && usage.ExtraUsage.IsEnabled)
                 {
-                    costUsedAbs = costNode.Value<float>("used");
-                    costLimit = costNode.Value<float>("limit");
-                    float pct = costLimit > 0 ? costUsedAbs / costLimit : 0f;
-                    barCost.ValueText = costLimit > 0 ? $"{pct * 100:F1}%" : "-";
-                    barCost.SubLabel = costLimit > 0 ? $"${costUsedAbs:F2} / ${costLimit:F2}" : "";
-                    barCost.Percentage = pct;
+                    costUsedAbs = (float)usage.ExtraUsage.UsedDollars;
+                    costPct     = usage.ExtraUsage.MonthlyLimit > 0
+                        ? (float)(usage.ExtraUsage.UsedCredits ?? 0) / (float)usage.ExtraUsage.MonthlyLimit.Value
+                        : 0f;
+                    barCost.ValueText  = $"{costPct * 100:F1}%";
+                    barCost.SubLabel   = usage.ExtraUsage.MonthlyLimit > 0
+                        ? $"${costUsedAbs:F2} / ${usage.ExtraUsage.LimitDollars:F2}"
+                        : $"${costUsedAbs:F2} used";
+                    barCost.Percentage = costPct;
                 }
 
-                // ── Tokens (try "tokens" then "token") ──────────────────
-                var tokenNode = usage["tokens"] ?? usage["token"];
-                if (tokenNode != null)
+                // ── Extra usage label ────────────────────────────────────
+                if (usage.ExtraUsage != null)
                 {
-                    // Some responses nest totals under a "total" sub-key
-                    var totalNode = tokenNode["total"] ?? tokenNode;
-                    tokenUsedAbs = totalNode.Value<float>("used");
-                    tokenLimit = totalNode.Value<float>("limit");
-                    float pct = tokenLimit > 0 ? tokenUsedAbs / tokenLimit : 0f;
-                    barToken.ValueText = tokenLimit > 0 ? $"{pct * 100:F1}%" : "-";
-                    barToken.SubLabel = tokenLimit > 0 ? $"{tokenUsedAbs:N0} / {tokenLimit:N0}" : "";
-                    barToken.Percentage = pct;
+                    bool enabled = usage.ExtraUsage.IsEnabled;
+                    string enabledStr = enabled ? "Enabled" : "Disabled";
+                    lblExtraUsageTitle.Text = $"EXTRA USAGE: {enabledStr.ToUpper()}";
+                    string spent = $"${usage.ExtraUsage.UsedDollars:F2} spent";
+                    string limit = usage.ExtraUsage.MonthlyLimit > 0
+                        ? $" / ${usage.ExtraUsage.LimitDollars:F2} limit"
+                        : "";
+                    lblExtraUsage.Text      = $"{spent}{limit}";
+                    lblExtraUsage.ForeColor = enabled
+                        ? Color.FromArgb(200, 160, 255)
+                        : Color.FromArgb(140, 140, 140);
+                }
+                else
+                {
+                    lblExtraUsageTitle.Text = "EXTRA USAGE: N/A";
+                    lblExtraUsage.Text      = "--";
+                    lblExtraUsage.ForeColor = Color.FromArgb(120, 120, 120);
                 }
 
-                // ── Messages (try "messages" then "message") ─────────────
-                var msgNode = usage["messages"] ?? usage["message"];
-                if (msgNode != null)
+                // ── 5-hour session token usage ───────────────────────────
+                float tokenPct = 0;
+                if (usage.FiveHour != null)
                 {
-                    msgUsedAbs = msgNode.Value<float>("used");
-                    msgLimit = msgNode.Value<float>("limit");
-                    float pct = msgLimit > 0 ? msgUsedAbs / msgLimit : 0f;
-                    barMessage.ValueText = msgLimit > 0 ? $"{pct * 100:F1}%" : "-";
-                    barMessage.SubLabel = msgLimit > 0 ? $"{msgUsedAbs:N0} / {msgLimit:N0}" : "";
-                    barMessage.Percentage = pct;
+                    tokenPct = (float)(usage.FiveHour.Utilization / 100.0);
+                    barToken.ValueText  = $"{tokenPct * 100:F1}%";
+                    barToken.SubLabel   = "5h session";
+                    barToken.Percentage = tokenPct;
                 }
 
-                // ── Reset time: try "reset_at" (ISO) then "reset_seconds" ─
+                // ── 7-day usage ──────────────────────────────────────────
+                float msgPct = 0;
+                if (usage.SevenDay != null)
+                {
+                    msgPct = (float)(usage.SevenDay.Utilization / 100.0);
+                    barMessage.ValueText  = $"{msgPct * 100:F1}%";
+                    barMessage.SubLabel   = "7-day";
+                    barMessage.Percentage = msgPct;
+                }
+
+                // ── Reset time ───────────────────────────────────────────
                 _resetAt = DateTime.MinValue;
-                var resetAtToken = usage["reset_at"];
-                var resetSecToken = usage["reset_seconds"];
-                if (resetAtToken != null && resetAtToken.Type != JTokenType.Null)
-                {
-                    string resetAtStr = resetAtToken.Value<string>() ?? "";
-                    if (DateTime.TryParse(resetAtStr, null,
-                            System.Globalization.DateTimeStyles.RoundtripKind, out DateTime parsed))
-                        _resetAt = parsed.ToUniversalTime();
-                }
-                else if (resetSecToken != null && resetSecToken.Type != JTokenType.Null)
-                {
-                    int sec = resetSecToken.Value<int>();
-                    _resetAt = DateTime.UtcNow.AddSeconds(sec);
-                }
+                if (usage.FiveHour?.ResetsAt != null)
+                    _resetAt = usage.FiveHour.ResetsAt.Value.UtcDateTime;
                 UpdateCountdown();
 
-                // ── Model distribution ───────────────────────────────────
-                if (usage["model_distribution"] is JObject mdist)
+                // ── Model distribution (sonnet vs opus) ──────────────────
+                if (usage.Sonnet != null)
                 {
-                    float sonnet = mdist["claude-sonnet-4-5"]?.Value<float>()
-                        ?? mdist["claude-sonnet"]?.Value<float>()
-                        ?? mdist["sonnet"]?.Value<float>() ?? 0f;
-                    float opus = mdist["claude-opus-4"]?.Value<float>()
-                        ?? mdist["claude-opus"]?.Value<float>()
-                        ?? mdist["opus"]?.Value<float>() ?? 0f;
-                    float haiku = mdist["claude-haiku"]?.Value<float>()
-                        ?? mdist["haiku"]?.Value<float>() ?? 0f;
-                    float total = sonnet + opus + haiku;
-                    if (total > 0) { sonnet /= total; opus /= total; haiku /= total; }
-                    barModelDist.Percentage = sonnet;
-                    barModelDist.SecondaryPercentage = opus;
-                    barModelDist.ValueText = $"S:{sonnet * 100:F0}% O:{opus * 100:F0}%";
-                    barModelDist.SubLabel = haiku > 0 ? $"Haiku: {haiku * 100:F0}%" : "";
-                    barModelDist.Invalidate();
+                    float su = (float)usage.Sonnet.Utilization;
+                    float ou = Math.Max(0f, (float)(usage.SevenDay?.Utilization ?? 0) - su);
+                    float total = su + ou;
+                    if (total > 0)
+                    {
+                        barModelDist.Percentage          = su / total;
+                        barModelDist.SecondaryPercentage = ou / total;
+                        barModelDist.ValueText = $"S:{su:F0}% O:{ou:F0}%";
+                        barModelDist.SubLabel  = "of 7-day quota";
+                    }
                 }
 
-                // ── Burn rate (computed from successive readings) ─────────
+                // ── Burn rate ────────────────────────────────────────────
                 var now = DateTime.Now;
-                if (!float.IsNaN(_prevTokensUsed) && _prevReadingTime != DateTime.MinValue && tokenUsedAbs > 0)
+                if (!float.IsNaN(_prevCostUsed) && _prevReadingTime != DateTime.MinValue)
                 {
                     double mins = (now - _prevReadingTime).TotalMinutes;
                     if (mins >= 0.5)
                     {
-                        _tokenBurnRate = (tokenUsedAbs - _prevTokensUsed) / (float)mins;
-                        _costBurnRate = (costUsedAbs - _prevCostUsed) / (float)mins;
+                        _costBurnRate  = (costUsedAbs - _prevCostUsed) / (float)mins;
+                        _tokenBurnRate = (tokenPct * 100f - _prevTokensUsed) / (float)mins;
                     }
                 }
-                if (tokenUsedAbs > 0)
-                {
-                    _prevTokensUsed = tokenUsedAbs;
-                    _prevCostUsed = costUsedAbs;
-                    _prevReadingTime = now;
-                }
+                _prevCostUsed    = costUsedAbs;
+                _prevTokensUsed  = tokenPct * 100f;
+                _prevReadingTime = now;
 
-                lblBurnRate.Text = (!float.IsNaN(_tokenBurnRate) && _tokenBurnRate >= 0)
-                    ? $"{_tokenBurnRate:N1} tok/min"
-                    : "-- tok/min";
+                lblBurnRate.Text = !float.IsNaN(_tokenBurnRate)
+                    ? $"{_tokenBurnRate:F3} %pts/min"
+                    : "-- %pts/min";
 
                 lblCostRate.Text = (!float.IsNaN(_costBurnRate) && _costBurnRate >= 0)
                     ? $"${_costBurnRate:F4}/min"
@@ -501,19 +538,20 @@ namespace ClaudeUsageBar
 
                 // ── Predictions ──────────────────────────────────────────
                 string tokensOutStr = "--";
-                if (!float.IsNaN(_tokenBurnRate) && _tokenBurnRate > 0 && tokenLimit > 0)
+                if (!float.IsNaN(_tokenBurnRate) && _tokenBurnRate > 0)
                 {
-                    float minsLeft = (tokenLimit - tokenUsedAbs) / _tokenBurnRate;
+                    float pctLeft  = 100f - tokenPct * 100f;
+                    float minsLeft = pctLeft / _tokenBurnRate;
                     tokensOutStr = DateTime.Now.AddMinutes(minsLeft).ToString("HH:mm");
                 }
                 string resetsAtStr = _resetAt != DateTime.MinValue
                     ? _resetAt.ToLocalTime().ToString("HH:mm")
                     : "--";
-                lblPredictions.Text = $"Tokens: {tokensOutStr}  |  Resets: {resetsAtStr}";
+                lblPredictions.Text = $"Session out: {tokensOutStr}  |  Resets: {resetsAtStr}";
 
                 // ── Peak/standard ────────────────────────────────────────
                 string rateStatus = GetRateStatus();
-                lblPeakStatus.Text = rateStatus;
+                lblPeakStatus.Text      = rateStatus;
                 lblPeakStatus.ForeColor = rateStatus.StartsWith("Peak") ? Color.Orange : Color.LightGreen;
 
                 nextRefreshTime = DateTime.Now.AddMilliseconds(refreshIntervalMs);
@@ -528,6 +566,7 @@ namespace ClaudeUsageBar
                 barCost.Percentage = barToken.Percentage = barMessage.Percentage = 0f;
                 lblTime.Text = "Error";
                 nextRefreshTime = DateTime.Now.AddMilliseconds(refreshIntervalMs);
+                Invalidate(true);
             }
         }
     }

@@ -1,31 +1,81 @@
-// This class will handle loading/saving the API key securely (simple file for now)
 using System;
+using System.Collections.Generic;
+using System.Drawing;
 using System.IO;
 
 namespace ClaudeUsageBar
 {
     public static class Settings
     {
-        private static readonly string FilePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ClaudeUsageBar.key");
+        private static readonly string FilePath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "ClaudeUsageBar.config");
 
-        public static string LoadApiKey()
+        private static Dictionary<string, string> _values = new(StringComparer.OrdinalIgnoreCase);
+
+        static Settings() => Load();
+
+        // ── File I/O ─────────────────────────────────────────────────────
+
+        private static void Load()
         {
-            System.Diagnostics.Debug.WriteLine($"[DEBUG] Loading API key from {FilePath}");
-            if (File.Exists(FilePath))
+            _values.Clear();
+            if (!File.Exists(FilePath)) return;
+            foreach (var line in File.ReadAllLines(FilePath))
             {
-                var key = File.ReadAllText(FilePath).Trim();
-                System.Diagnostics.Debug.WriteLine($"[DEBUG] API key loaded (length: {key.Length})");
-                return key;
+                var t = line.Trim();
+                if (string.IsNullOrEmpty(t) || t.StartsWith('#') || t.StartsWith('['))
+                    continue;
+                int eq = t.IndexOf('=');
+                if (eq < 1) continue;
+                _values[t[..eq].Trim()] = t[(eq + 1)..].Trim();
             }
-            System.Diagnostics.Debug.WriteLine("[DEBUG] API key file does not exist.");
-            return string.Empty;
         }
 
-        public static void SaveApiKey(string key)
+        public static void SaveAll()
         {
-            System.Diagnostics.Debug.WriteLine($"[DEBUG] Writing API key to {FilePath}");
-            File.WriteAllText(FilePath, key);
-            System.Diagnostics.Debug.WriteLine("[DEBUG] API key written to file.");
+            var lines = new List<string> { "# ClaudeUsageBar settings", "" };
+            foreach (var kv in _values)
+                lines.Add($"{kv.Key}={kv.Value}");
+            try { File.WriteAllLines(FilePath, lines); }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Settings] Save failed: {ex.Message}");
+            }
+        }
+
+        private static string Get(string key, string def = "") =>
+            _values.TryGetValue(key, out var v) ? v : def;
+
+        private static void Set(string key, string value) => _values[key] = value;
+
+        // ── Typed helpers ─────────────────────────────────────────────────
+
+        public static int LoadRefreshIntervalMs() =>
+            int.TryParse(Get("refreshIntervalMs"), out int v) ? Math.Max(30_000, v) : 120_000;
+        public static void SaveRefreshIntervalMs(int ms) { Set("refreshIntervalMs", ms.ToString()); SaveAll(); }
+
+        public static Point LoadWindowLocation()
+        {
+            int x = int.TryParse(Get("windowX"), out int px) ? px : 100;
+            int y = int.TryParse(Get("windowY"), out int py) ? py : 100;
+            return new Point(x, y);
+        }
+
+        public static Size LoadWindowSize()
+        {
+            int w = int.TryParse(Get("windowWidth"),  out int pw) ? pw : 1200;
+            int h = int.TryParse(Get("windowHeight"), out int ph) ? ph : 120;
+            return new Size(Math.Max(800, w), Math.Max(80, h));
+        }
+
+        public static void SaveWindowBounds(Point location, Size size)
+        {
+            Set("windowX",      location.X.ToString());
+            Set("windowY",      location.Y.ToString());
+            Set("windowWidth",  size.Width.ToString());
+            Set("windowHeight", size.Height.ToString());
+            SaveAll();
         }
     }
 }

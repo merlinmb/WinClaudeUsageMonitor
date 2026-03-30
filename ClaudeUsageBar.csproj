@@ -2,15 +2,9 @@
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <RootNamespace>ClaudeUsageBar</RootNamespace>
-    <Nullable>enable</Nullable>
-
     <TargetFramework>net8.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWindowsForms>true</UseWindowsForms>
-
   </PropertyGroup>
-  <ItemGroup>
-    <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
-  </ItemGroup>
 </Project>

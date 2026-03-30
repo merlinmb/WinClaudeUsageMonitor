@@ -1,0 +1,95 @@
+using System.Text.Json.Serialization;
+
+namespace ClaudeUsageBar.Models;
+
+public class UsageData
+{
+    [JsonPropertyName("five_hour")]
+    public UsageWindow? FiveHour { get; set; }
+
+    [JsonPropertyName("seven_day")]
+    public UsageWindow? SevenDay { get; set; }
+
+    [JsonPropertyName("seven_day_sonnet")]
+    public UsageWindow? SevenDaySonnet { get; set; }
+
+    [JsonPropertyName("sonnet_only")]
+    public UsageWindow? SonnetOnly { get; set; }
+
+    [JsonPropertyName("extra_usage")]
+    public ExtraUsageData? ExtraUsage { get; set; }
+
+    /// <summary>
+    /// Returns sonnet data from seven_day_sonnet (primary) or sonnet_only (fallback).
+    /// </summary>
+    public UsageWindow? Sonnet => SevenDaySonnet ?? SonnetOnly;
+}
+
+public class UsageWindow
+{
+    [JsonPropertyName("utilization")]
+    public double Utilization { get; set; }
+
+    [JsonPropertyName("resets_at")]
+    public DateTimeOffset? ResetsAt { get; set; }
+
+    public int UtilizationPercent => (int)Utilization;
+
+    public string TimeUntilReset
+    {
+        get
+        {
+            if (ResetsAt == null) return "--";
+
+            var remaining = ResetsAt.Value - DateTimeOffset.UtcNow;
+            if (remaining.TotalSeconds <= 0) return "now";
+            if (remaining.TotalDays >= 1) return $"{(int)remaining.TotalDays}d {remaining.Hours}h";
+            if (remaining.TotalHours >= 1) return $"{(int)remaining.TotalHours}h {remaining.Minutes}m";
+            return $"{remaining.Minutes}m";
+        }
+    }
+}
+
+public class ExtraUsageData
+{
+    [JsonPropertyName("is_enabled")]
+    public bool IsEnabled { get; set; }
+
+    [JsonPropertyName("monthly_limit")]
+    public double? MonthlyLimit { get; set; }
+
+    [JsonPropertyName("used_credits")]
+    public double? UsedCredits { get; set; }
+
+    [JsonPropertyName("utilization")]
+    public double? Utilization { get; set; }
+
+    public double LimitDollars => (MonthlyLimit ?? 0) / 100.0;
+    public double UsedDollars  => (UsedCredits  ?? 0) / 100.0;
+    public int UtilizationPercent => MonthlyLimit > 0
+        ? (int)((UsedCredits ?? 0) / MonthlyLimit.Value * 100) : 0;
+}
+
+public class CredentialsFile
+{
+    [JsonPropertyName("claudeAiOauth")]
+    public ClaudeOAuth? ClaudeAiOauth { get; set; }
+}
+
+public class ClaudeOAuth
+{
+    [JsonPropertyName("accessToken")]
+    public string? AccessToken { get; set; }
+
+    [JsonPropertyName("refreshToken")]
+    public string? RefreshToken { get; set; }
+
+    [JsonPropertyName("expiresAt")]
+    public long? ExpiresAt { get; set; }
+
+    [JsonPropertyName("scopes")]
+    public string[]? Scopes { get; set; }
+
+    [JsonPropertyName("subscriptionType")]
+    public string? SubscriptionType { get; set; }
+}

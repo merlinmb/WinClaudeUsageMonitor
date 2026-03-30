@@ -6,14 +6,36 @@ namespace ClaudeUsageBar
 {
     public class UsageBar : Control
     {
-        public float Percentage { get; set; } = 0f; // 0.0 - 1.0
+        private float _percentage;
+        private string _valueText = "";
+        private string _subLabel = "";
+        private float _secondaryPercentage;
+
+        public float Percentage
+        {
+            get => _percentage;
+            set { _percentage = value; Invalidate(); }
+        }
+        public string ValueText
+        {
+            get => _valueText;
+            set { _valueText = value; Invalidate(); }
+        }
+        public string SubLabel
+        {
+            get => _subLabel;
+            set { _subLabel = value; Invalidate(); }
+        }
+        public float SecondaryPercentage
+        {
+            get => _secondaryPercentage;
+            set { _secondaryPercentage = value; Invalidate(); }
+        }
+
         public Color BarColor { get; set; } = Color.Gold;
         public string Label { get; set; } = "";
-        public string ValueText { get; set; } = "";
-        public string SubLabel { get; set; } = "";
         public bool LargeValue { get; set; } = false;
         // For split distribution bars (e.g. model distribution)
-        public float SecondaryPercentage { get; set; } = 0f;
         public Color SecondaryBarColor { get; set; } = Color.MediumPurple;
 
         public UsageBar()
@@ -36,18 +58,18 @@ namespace ClaudeUsageBar
             // Draw value
             using (var font = new Font("Segoe UI", LargeValue ? 18f : 13f, FontStyle.Bold))
             using (var brush = new SolidBrush(Color.White))
-                g.DrawString(ValueText, font, brush, 0, 15);
+                g.DrawString(ValueText, font, brush, 0, 13);
 
-            // Draw sublabel
+            // Draw sublabel — sits above the bar, below the value
             if (!string.IsNullOrEmpty(SubLabel))
             {
                 using (var font = new Font("Segoe UI", 7.5f, FontStyle.Regular))
-                using (var brush = new SolidBrush(Color.FromArgb(180, 180, 180)))
-                    g.DrawString(SubLabel, font, brush, 0, 40);
+                using (var brush = new SolidBrush(Color.FromArgb(160, 160, 160)))
+                    g.DrawString(SubLabel, font, brush, 0, 36);
             }
 
-            // Draw bar
-            int barY = this.Height - 8;
+            // Draw bar — always at the very bottom
+            int barY = this.Height - 5;
             int barW = (int)(this.Width * Percentage);
             using (var barBrush = new SolidBrush(BarColor))
                 g.FillRectangle(barBrush, 0, barY, barW, 4);

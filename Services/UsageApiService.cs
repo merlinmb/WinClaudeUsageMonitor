@@ -1,0 +1,120 @@
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Text.Json;
+using ClaudeUsageBar.Models;
+
+namespace ClaudeUsageBar.Services;
+
+public class UsageApiService
+{
+    private static readonly HttpClient _httpClient = new();
+    private const string UsageApiUrl = "https://api.anthropic.com/api/oauth/usage";
+    private const int MaxRetries = 5;
+
+    private static string? _cachedClaudeCodeVersion;
+
+    private static string GetClaudeCodeVersion()
+    {
+        if (_cachedClaudeCodeVersion != null) return _cachedClaudeCodeVersion;
+
+        try
+        {
+            var version = TryGetVersionFromProcess("claude", "--version")
+                       ?? TryGetVersionFromProcess("wsl", "claude --version");
+            _cachedClaudeCodeVersion = version ?? "2.1.0";
+        }
+        catch
+        {
+            _cachedClaudeCodeVersion = "2.1.0";
+        }
+
+        return _cachedClaudeCodeVersion;
+    }
+
+    private static string? TryGetVersionFromProcess(string fileName, string arguments)
+    {
+        try
+        {
+            using var process = new System.Diagnostics.Process();
+            process.StartInfo = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = fileName,
+                Arguments = arguments,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            process.Start();
+            var output = process.StandardOutput.ReadToEnd().Trim();
+            process.WaitForExit(5000);
+
+            if (!string.IsNullOrWhiteSpace(output))
+            {
+                var parts = output.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                var versionString = parts[^1];
+                if (System.Text.RegularExpressions.Regex.IsMatch(versionString, @"^\d+\.\d+"))
+                    return versionString;
+            }
+        }
+        catch { }
+
+        return null;
+    }
+
+    public static async Task<UsageData?> GetUsageAsync()
+    {
+        var token = await CredentialService.GetAccessTokenAsync();
+        if (string.IsNullOrEmpty(token)) return null;
+
+        var claudeVersion = GetClaudeCodeVersion();
+
+        for (int attempt = 0; attempt <= MaxRetries; attempt++)
+        {
+            try
+            {
+                using var request = new HttpRequestMessage(HttpMethod.Get, UsageApiUrl);
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                request.Headers.Add("User-Agent", $"claude-code/{claudeVersion}");
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                request.Headers.Add("anthropic-beta", "oauth-2025-04-20");
+
+                var response = await _httpClient.SendAsync(request);
+
+                if (response.IsSuccessStatusCode)
+                {
+                    var json = await response.Content.ReadAsStringAsync();
+                    System.Diagnostics.Debug.WriteLine($"API Response: {json}");
+                    return JsonSerializer.Deserialize<UsageData>(json);
+                }
+
+                var statusCode = (int)response.StatusCode;
+                var errorBody = await response.Content.ReadAsStringAsync();
+                System.Diagnostics.Debug.WriteLine(
+                    $"API Error (attempt {attempt + 1}/{MaxRetries + 1}): {response.StatusCode} - {errorBody}");
+
+                if ((statusCode == 429 || statusCode >= 500) && attempt < MaxRetries)
+                {
+                    var delay = TimeSpan.FromSeconds(Math.Pow(2, attempt));
+                    await Task.Delay(delay);
+                    continue;
+                }
+
+                return null;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Exception in GetUsageAsync (attempt {attempt + 1}): {ex.Message}");
+                if (attempt < MaxRetries)
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(Math.Pow(2, attempt)));
+                    continue;
+                }
+                return null;
+            }
+        }
+
+        return null;
+    }
+}
