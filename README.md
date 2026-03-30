@@ -9,6 +9,7 @@ Features:
 - Peak vs standard rate indicator (US Eastern business hours)
 - Auto-refreshes on a configurable interval (default 2 minutes)
 - Dark theme UI
+<img width="1193" height="111" alt="image" src="https://github.com/user-attachments/assets/646e9a85-fce6-4f66-86d8-0923004a169b" />
 
 ## Requirements
 
