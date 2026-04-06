@@ -79,7 +79,14 @@ namespace ClaudeUsageBar
                 Visible = true,
                 ContextMenuStrip = trayMenu
             };
-            trayIcon.DoubleClick += (s, e) => { this.Show(); this.Activate(); };
+            trayIcon.MouseClick += (s, e) =>
+            {
+                if (((MouseEventArgs)e).Button == MouseButtons.Left)
+                {
+                    if (this.Visible) this.Hide();
+                    else { this.Show(); this.Activate(); }
+                }
+            };
 
             infoBar = new Panel { Dock = DockStyle.Fill, BackColor = Color.FromArgb(24, 24, 24) };
             this.Controls.Add(infoBar);
