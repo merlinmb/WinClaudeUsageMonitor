@@ -70,15 +70,16 @@ namespace ClaudeUsageBar
 
             // Draw bar — always at the very bottom
             int barY = this.Height - 5;
-            int barW = (int)(this.Width * Percentage);
+            int totalW = this.Width;
+            int barW = Math.Clamp((int)(totalW * Percentage), 0, totalW);
             using (var barBrush = new SolidBrush(BarColor))
                 g.FillRectangle(barBrush, 0, barY, barW, 4);
             if (SecondaryPercentage > 0f)
             {
-                int secW = (int)(this.Width * SecondaryPercentage);
+                int secW = Math.Clamp((int)(totalW * SecondaryPercentage), 0, totalW - barW);
                 using (var secBrush = new SolidBrush(SecondaryBarColor))
                     g.FillRectangle(secBrush, barW, barY, secW, 4);
-                int remainder = this.Width - barW - secW;
+                int remainder = totalW - barW - secW;
                 if (remainder > 0)
                     using (var bgBrush = new SolidBrush(Color.FromArgb(40, 40, 40)))
                         g.FillRectangle(bgBrush, barW + secW, barY, remainder, 4);
@@ -86,7 +87,7 @@ namespace ClaudeUsageBar
             else
             {
                 using (var bgBrush = new SolidBrush(Color.FromArgb(40, 40, 40)))
-                    g.FillRectangle(bgBrush, barW, barY, this.Width - barW, 4);
+                    g.FillRectangle(bgBrush, barW, barY, totalW - barW, 4);
             }
         }
     }

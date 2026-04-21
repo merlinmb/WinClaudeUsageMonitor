@@ -66,7 +66,7 @@ namespace ClaudeUsageBar
         {
             int w = int.TryParse(Get("windowWidth"),  out int pw) ? pw : 1200;
             int h = int.TryParse(Get("windowHeight"), out int ph) ? ph : 120;
-            return new Size(Math.Max(800, w), Math.Max(80, h));
+            return new Size(Math.Max(1100, w), Math.Max(120, h));
         }
 
         public static void SaveWindowBounds(Point location, Size size)

@@ -58,10 +58,12 @@ namespace ClaudeUsageBar
         public MainForm()
         {
             this.Text = "Claude Usage Bar";
+            this.Icon = CreateRobotIcon();
             this.FormBorderStyle = FormBorderStyle.None;
             this.TopMost = true;
             this.ShowInTaskbar = false;
             this.BackColor = Color.FromArgb(24, 24, 24);
+            this.MinimumSize = new Size(1100, 120);
             this.Size = Settings.LoadWindowSize();
             this.StartPosition = FormStartPosition.Manual;
             this.Location = Settings.LoadWindowLocation();
