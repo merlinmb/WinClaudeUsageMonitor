@@ -191,10 +191,31 @@ public class CredentialService
         }
     }
 
+    private static IEnumerable<string> EnumerateWslCredentialPaths()
+    {
+        string[] wslDistros = ["Debian", "Ubuntu", "Ubuntu-22.04", "Ubuntu-20.04", "kali-linux"];
+        string[] wslRoots = [@"\\wsl.localhost", @"\\wsl$"];
+        foreach (var root in wslRoots)
+        foreach (var distro in wslDistros)
+        {
+            string wslHome = $@"{root}\{distro}\home";
+            if (!Directory.Exists(wslHome)) continue;
+            string[] userDirs;
+            try { userDirs = Directory.GetDirectories(wslHome); }
+            catch { continue; }
+            foreach (var userDir in userDirs)
+            {
+                var credPath = Path.Combine(userDir, ".claude", ".credentials.json");
+                if (File.Exists(credPath)) yield return credPath;
+            }
+        }
+    }
+
     public static bool CredentialsExist()
     {
         if (_cachedCredentialsPath != null && File.Exists(_cachedCredentialsPath)) return true;
-        return File.Exists(GetWindowsNativePath());
+        if (File.Exists(GetWindowsNativePath())) return true;
+        return EnumerateWslCredentialPaths().Any();
     }
 
     public static string? GetCredentialsPath()
@@ -202,7 +223,8 @@ public class CredentialService
         if (_cachedCredentialsPath != null && File.Exists(_cachedCredentialsPath))
             return _cachedCredentialsPath;
         var windowsPath = GetWindowsNativePath();
-        return File.Exists(windowsPath) ? windowsPath : null;
+        if (File.Exists(windowsPath)) return windowsPath;
+        return EnumerateWslCredentialPaths().FirstOrDefault();
     }
 }
 
