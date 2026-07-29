@@ -69,11 +69,19 @@ public class UsageApiService
         if (string.IsNullOrEmpty(token)) return null;
 
         var claudeVersion = GetClaudeCodeVersion();
+        var reReadCredentials = false;
 
         for (int attempt = 0; attempt <= MaxRetries; attempt++)
         {
             try
             {
+                if (reReadCredentials)
+                {
+                    token = await CredentialService.GetAccessTokenAsync();
+                    if (string.IsNullOrEmpty(token)) return null;
+                    reReadCredentials = false;
+                }
+
                 using var request = new HttpRequestMessage(HttpMethod.Get, UsageApiUrl);
                 request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
                 request.Headers.Add("User-Agent", $"claude-code/{claudeVersion}");
@@ -93,6 +101,13 @@ public class UsageApiService
                 var errorBody = await response.Content.ReadAsStringAsync();
                 System.Diagnostics.Debug.WriteLine(
                     $"API Error (attempt {attempt + 1}/{MaxRetries + 1}): {response.StatusCode} - {errorBody}");
+
+                if (statusCode == 401 && attempt < MaxRetries)
+                {
+                    // Token on disk may have just been refreshed by Claude Code; re-read and retry once.
+                    reReadCredentials = true;
+                    continue;
+                }
 
                 if ((statusCode == 429 || statusCode >= 500) && attempt < MaxRetries)
                 {
